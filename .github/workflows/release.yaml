@@ -1,31 +1,63 @@
-name: Releasing With Semantic Release
+name: CI with Maven, SonarCloud, and Semantic Release
 
 on:
   push:
-    branches: [ main, release ]
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
-  Releasing:
+  build-and-test:
     runs-on: ubuntu-latest
-    steps:
-      - name: Get Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
+    name: Build, Test, Analyze, and Release
 
-      - name: Use Node.js 20.9.0
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Cache Maven dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven
+
+      - name: Build with Maven
+        run: mvn clean install -DskipTests=false
+
+      - name: Run Unit Tests (Continuous Testing)
+        run: mvn test
+
+      - name: SonarCloud Analysis
+        uses: SonarSource/sonarcloud-github-action@v2
+        with:
+          projectBaseDir: .
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20.9.0
+          node-version: '20'
 
-      - name: Load & Cache Dependencies
-        uses: ./.github/actions/cached-deps
+      - name: Install semantic-release and plugins
+        run: npm install --save-dev semantic-release @semantic-release/changelog @semantic-release/commit-analyzer @semantic-release/git @semantic-release/github @semantic-release/npm @semantic-release/release-notes-generator
 
-      - name: Set up Git and run semantic-release
+      - name: Run Semantic Release
         env:
-          GITHUB_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
-        run: |
-          git config --global user.name 'semantic_release_bot'
-          git config --global user.email 'demirtasdurmus@gmail.com'
-          npx semantic-release
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: npx semantic-release
